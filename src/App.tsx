@@ -1,247 +1,193 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Users, Save, Download, Moon, Sun } from 'lucide-react';
+import { Users, Save, Download } from 'lucide-react';
 import { PlayerCard } from './components/PlayerCard';
 import { RugbyField } from './components/RugbyField';
 import { PlayerModal } from './components/PlayerModal';
+import { WelcomeScreen } from './components/WelcomeScreen';
+import { Player, Team, DropPosition } from './types';
+import { POSITIONS } from './constants';
+import { saveTeamsToLocalStorage, loadTeamsFromLocalStorage } from './utils';
 
-interface Player {
-  id: number;
-  name: string;
-  position: string;
-  number?: number;
-  x?: number;
-  y?: number;
-}
+const RugbyApp: React.FC = () => {
+  const [selectedTeam, setSelectedTeam] = useState<Team>('team1');
+  const [teams, setTeams] = useState<Record<Team, Player[]>>({
+    team1: [],
+    team2: []
+  });
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-const WelcomeScreen = ({ onEnter }: { onEnter: () => void }) => {
+  // Load teams from localStorage on mount
+  useEffect(() => {
+    const savedTeams = loadTeamsFromLocalStorage();
+    if (savedTeams) {
+      setTeams(savedTeams as Record<Team, Player[]>);
+    }
+  }, []);
+
+  // Save teams to localStorage when they change
+  useEffect(() => {
+    saveTeamsToLocalStorage(teams);
+  }, [teams]);
+
+  const handlePlayerDrop = useCallback((player: Player, position: DropPosition) => {
+    setTeams(prev => ({
+      ...prev,
+      [selectedTeam]: prev[selectedTeam].map(p =>
+        p.id === player.id ? { ...p, ...position } : p
+      )
+    }));
+  }, [selectedTeam]);
+
+  const handlePlayerAdd = useCallback((player: Omit<Player, 'id'>) => {
+    setTeams(prev => ({
+      ...prev,
+      [selectedTeam]: [
+        ...prev[selectedTeam],
+        {
+          ...player,
+          id: Date.now(),
+        }
+      ]
+    }));
+    setIsModalOpen(false);
+  }, [selectedTeam]);
+
+  const handlePlayerRemove = useCallback((playerId: number) => {
+    setTeams(prev => ({
+      ...prev,
+      [selectedTeam]: prev[selectedTeam].map(p => 
+        p.id === playerId ? { ...p, x: undefined, y: undefined } : p
+      )
+    }));
+  }, [selectedTeam]);
+
+  const handleExport = useCallback(() => {
+    const dataStr = JSON.stringify(teams);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = 'rugby-teams.json';
+
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  }, [teams]);
+
+  const handleImport = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedTeams = JSON.parse(e.target?.result as string);
+        setTeams(importedTeams);
+      } catch (error) {
+        console.error('Error importing teams:', error);
+        alert('Erreur lors de l\'importation des équipes');
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
   return (
-    <div className="relative w-full h-screen overflow-hidden">
-      <video 
-        autoPlay 
-        muted 
-        loop 
-        className="absolute top-0 left-0 w-full h-full object-cover"
-      >
-        <source src="/video/rugby-tackles.mp4" type="video/mp4" />
-        Votre navigateur ne prend pas en charge la vidéo.
-      </video>
+    <div className="min-h-screen bg-gray-900">
+      <div className="container mx-auto p-4">
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex gap-4">
+            <button
+              onClick={() => setSelectedTeam('team1')}
+              className={`px-4 py-2 rounded-lg ${
+                selectedTeam === 'team1'
+                  ? 'bg-yellow-500 text-black'
+                  : 'bg-gray-700 text-white'
+              }`}
+            >
+              Équipe 1
+            </button>
+            <button
+              onClick={() => setSelectedTeam('team2')}
+              className={`px-4 py-2 rounded-lg ${
+                selectedTeam === 'team2'
+                  ? 'bg-yellow-500 text-black'
+                  : 'bg-gray-700 text-white'
+              }`}
+            >
+              Équipe 2
+            </button>
+          </div>
 
-      <div className="relative z-10 h-full w-full bg-black/40 flex flex-col items-center justify-center">
-        <h1 className="text-6xl font-bold text-white mb-8 tracking-wider">
-          COMPOSITION RUGBY
-        </h1>
-        
-        <button
-          onClick={onEnter}
-          className="px-8 py-4 bg-yellow-500 text-black font-bold rounded-full 
-                   hover:bg-yellow-400 transform hover:scale-105 transition-all duration-300
-                   shadow-lg hover:shadow-xl text-xl uppercase tracking-wider"
-        >
-          Créer une équipe
-        </button>
+          <div className="flex gap-4">
+            <button
+              onClick={handleExport}
+              className="p-2 rounded-lg bg-gray-700 text-white"
+              aria-label="Exporter les équipes"
+            >
+              <Save size={20} />
+            </button>
+            <label className="p-2 rounded-lg bg-gray-700 text-white cursor-pointer">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+              <Download size={20} />
+            </label>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-black rounded-lg"
+            >
+              <Users size={20} />
+              Ajouter un joueur
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="space-y-4">
+            {teams[selectedTeam].filter(p => !p.x && !p.y).map((player) => (
+              <PlayerCard
+                key={player.id}
+                {...player}
+              />
+            ))}
+          </div>
+
+          <div className="md:col-span-3 aspect-[16/9]">
+            <RugbyField
+              players={teams[selectedTeam].filter(p => p.x && p.y)}
+              onPlayerDrop={handlePlayerDrop}
+              onPlayerRemove={handlePlayerRemove}
+            />
+          </div>
+        </div>
       </div>
+
+      {isModalOpen && (
+        <PlayerModal
+          onClose={() => setIsModalOpen(false)}
+          onSubmit={handlePlayerAdd}
+          positions={POSITIONS}
+        />
+      )}
     </div>
   );
 };
 
-const RugbyApp = () => {
-  const [selectedTeam, setSelectedTeam] = useState<'team1' | 'team2'>('team1');
-  const [team1Players, setTeam1Players] = useState<Player[]>([]);
-  const [team2Players, setTeam2Players] = useState<Player[]>([]);
-  const [showPlayerModal, setShowPlayerModal] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+const App: React.FC = () => {
+  const [showWelcome, setShowWelcome] = useState(true);
 
-  const handleAddPlayer = (player: Omit<Player, 'id'>) => {
-    const newPlayer = {
-      ...player,
-      id: Date.now(),
-    };
-
-    if (selectedTeam === 'team1') {
-      setTeam1Players([...team1Players, newPlayer]);
-    } else {
-      setTeam2Players([...team2Players, newPlayer]);
-    }
-    setShowPlayerModal(false);
-  };
-
-  const handlePlayerDrop = (player: Player, position: { x: number; y: number }) => {
-    const updatePlayer = (players: Player[]) =>
-      players.map((p) =>
-        p.id === player.id 
-          ? { ...p, x: position.x, y: position.y }
-          : p
-      );
-
-    if (selectedTeam === 'team1') {
-      setTeam1Players((prevPlayers) => updatePlayer(prevPlayers));
-    } else {
-      setTeam2Players((prevPlayers) => updatePlayer(prevPlayers));
-    }
-  };
-
-  const handlePlayerRemove = (playerId: number) => {
-    if (selectedTeam === 'team1') {
-      setTeam1Players(prevPlayers => {
-        const playerToRemove = prevPlayers.find(p => p.id === playerId);
-        if (!playerToRemove) return prevPlayers;
-        
-        return prevPlayers.map(p => 
-          p.id === playerId 
-            ? { ...p, x: undefined, y: undefined }
-            : p
-        );
-      });
-    } else {
-      setTeam2Players(prevPlayers => {
-        const playerToRemove = prevPlayers.find(p => p.id === playerId);
-        if (!playerToRemove) return prevPlayers;
-        
-        return prevPlayers.map(p => 
-          p.id === playerId 
-            ? { ...p, x: undefined, y: undefined }
-            : p
-        );
-      });
-    }
-  };
-
-  const currentTeamPlayers = selectedTeam === 'team1' ? team1Players : team2Players;
-  const fieldPlayers = currentTeamPlayers.filter((p) => p.x !== undefined && p.y !== undefined);
-  const benchPlayers = currentTeamPlayers.filter((p) => p.x === undefined || p.y === undefined);
+  if (showWelcome) {
+    return <WelcomeScreen onEnter={() => setShowWelcome(false)} />;
+  }
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className={`min-h-screen transition-colors duration-300 ${
-        darkMode 
-          ? 'bg-gray-900 text-white' 
-          : 'bg-gradient-to-br from-green-800 to-green-900'
-      }`}>
-        {/* Top Navigation */}
-        <nav className={`${
-          darkMode ? 'bg-gray-800/80' : 'bg-white/10'
-        } backdrop-blur-md shadow-lg`}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-              <div className="flex items-center">
-                <span className="text-white text-xl font-semibold">
-                  Composition d'Équipe Rugby
-                </span>
-              </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setDarkMode(!darkMode)}
-                  className={`p-2 rounded-lg transition-colors ${
-                    darkMode 
-                      ? 'bg-gray-700 hover:bg-gray-600' 
-                      : 'bg-white/20 hover:bg-white/30'
-                  }`}
-                >
-                  {darkMode ? <Sun size={20} className="text-white" /> : <Moon size={20} className="text-white" />}
-                </button>
-                <button className="bg-yellow-500 hover:bg-yellow-400 text-black px-4 py-2 rounded-lg flex items-center gap-2 transition-all">
-                  <Save size={20} />
-                  Sauvegarder
-                </button>
-                <button className={`${
-                  darkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-white/20 hover:bg-white/30'
-                } text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all`}>
-                  <Download size={20} />
-                  Charger
-                </button>
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Team Selection */}
-          <div className="flex justify-center mb-8">
-            <div className={`${
-              darkMode ? 'bg-gray-800' : 'bg-white/10'
-            } rounded-xl p-1 backdrop-blur-md`}>
-              <button
-                className={`px-6 py-2 rounded-lg ${
-                  selectedTeam === 'team1'
-                    ? 'bg-yellow-500 text-black'
-                    : 'text-white hover:bg-white/10'
-                } transition-all`}
-                onClick={() => setSelectedTeam('team1')}
-              >
-                Équipe 1
-              </button>
-              <button
-                className={`px-6 py-2 rounded-lg ${
-                  selectedTeam === 'team2'
-                    ? 'bg-yellow-500 text-black'
-                    : 'text-white hover:bg-white/10'
-                } transition-all`}
-                onClick={() => setSelectedTeam('team2')}
-              >
-                Équipe 2
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Player List */}
-            <div className={`lg:col-span-3 ${
-              darkMode ? 'bg-gray-800' : 'bg-white/10'
-            } rounded-xl p-6 backdrop-blur-md`}>
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-white">Joueurs</h2>
-                <button
-                  onClick={() => setShowPlayerModal(true)}
-                  className="bg-yellow-500 hover:bg-yellow-400 text-black p-2 rounded-lg transition-all"
-                >
-                  <Users size={20} />
-                </button>
-              </div>
-              <div className="space-y-2">
-                {benchPlayers.map((player) => (
-                  <PlayerCard key={player.id} {...player} />
-                ))}
-                {benchPlayers.length === 0 && (
-                  <p className="text-white/60 text-center py-4">
-                    Aucun joueur sur le banc
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Rugby Field */}
-            <div className="lg:col-span-9 aspect-[1.5] bg-green-700 rounded-xl overflow-hidden">
-              <RugbyField
-                players={fieldPlayers}
-                onPlayerDrop={handlePlayerDrop}
-                onPlayerRemove={handlePlayerRemove}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Player Modal */}
-        <PlayerModal
-          isOpen={showPlayerModal}
-          onClose={() => setShowPlayerModal(false)}
-          onAddPlayer={handleAddPlayer}
-          darkMode={darkMode}
-        />
-      </div>
+      <RugbyApp />
     </DndProvider>
   );
 };
-
-function App() {
-  const [showApp, setShowApp] = useState(false);
-
-  if (!showApp) {
-    return <WelcomeScreen onEnter={() => setShowApp(true)} />;
-  }
-
-  return <RugbyApp />;
-}
 
 export default App;
